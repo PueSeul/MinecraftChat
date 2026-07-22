@@ -178,7 +178,7 @@ public final class SkinHeadLoader implements AutoCloseable {
             connection.setReadTimeout(7_000);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "JavaChat/1.1 Android");
+            connection.setRequestProperty("User-Agent", "JavaChat/1.2 Android");
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
                 return null;
             }
@@ -223,7 +223,7 @@ public final class SkinHeadLoader implements AutoCloseable {
             connection.setReadTimeout(7_000);
             connection.setInstanceFollowRedirects(false);
             connection.setUseCaches(true);
-            connection.setRequestProperty("User-Agent", "JavaChat/1.1 Android");
+            connection.setRequestProperty("User-Agent", "JavaChat/1.2 Android");
             if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
                 return null;
             }

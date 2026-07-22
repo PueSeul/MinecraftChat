@@ -4,14 +4,14 @@ Java Chat은 안드로이드에서 Minecraft Java 서버의 채팅과 접속자 
 
 ## 설치 방법
 
-1. [Java Chat v1.1 APK 다운로드](https://github.com/PueSeul/JavaChat-Android/releases/download/v1.1/JavaChat-v1.1.apk)를 눌러 APK를 받습니다.
-2. 다운로드한 `JavaChat-v1.1.apk`를 실행합니다.
+1. [Java Chat v1.2 APK 다운로드](https://github.com/PueSeul/JavaChat-Android/releases/download/v1.2/JavaChat-v1.2.apk)를 눌러 APK를 받습니다.
+2. 다운로드한 `JavaChat-v1.2.apk`를 실행합니다.
 3. Android가 요청하면 브라우저 또는 파일 앱의 **이 출처의 앱 설치 허용**을 켜고 설치를 완료합니다.
 
 ADB로 설치하려면 다음 명령을 사용할 수 있습니다.
 
 ```powershell
-adb install -r JavaChat-v1.1.apk
+adb install -r JavaChat-v1.2.apk
 ```
 
 ## 사용 방법

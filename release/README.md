@@ -2,7 +2,7 @@
 
 최신 정식 APK는 이 폴더 또는 GitHub의 Releases 페이지에서 받을 수 있습니다.
 
-- 파일: `JavaChat-v1.1.apk`
+- 파일: `JavaChat-v1.2.apk`
 - 패키지: `com.dudal.javachat`
 - 최소 Android: 8.0 (API 26)
 - 대상 Android SDK: API 37

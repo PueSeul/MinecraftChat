@@ -20,6 +20,7 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -66,6 +67,7 @@ public final class MainActivity extends Activity {
     private LinearLayout offlineFields;
     private TextView modeStatus;
     private TextView accountStatus;
+    private TextView updateStatus;
     private Button accountButton;
     private Button onlineModeButton;
     private Button offlineModeButton;
@@ -73,6 +75,7 @@ public final class MainActivity extends Activity {
     private EditText offlineNicknameInput;
     private boolean loginInProgress;
     private boolean updateCheckInProgress;
+    private GitHubUpdateChecker.ReleaseInfo availableUpdate;
     private GitHubUpdateChecker.ReleaseInfo pendingUpdate;
     private final ExecutorService statusExecutor = Executors.newFixedThreadPool(3);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
@@ -86,6 +89,7 @@ public final class MainActivity extends Activity {
         connectionSettings = new ConnectionSettingsRepository(this);
         auth = new MicrosoftAuthRepository(this);
         setContentView(buildContent());
+        checkForUpdates(false);
         requestNotificationPermission();
     }
 
@@ -138,8 +142,19 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = UiKit.title(this, "Java Chat");
-        root.addView(title);
+        titleRow.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button more = UiKit.button(this, "⋮", false);
+        more.setContentDescription("더보기");
+        more.setTextSize(22);
+        more.setPadding(0, 0, 0, 0);
+        more.setOnClickListener(this::showMoreMenu);
+        titleRow.addView(more, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 48), UiKit.dp(this, 44)));
+        root.addView(titleRow, UiKit.matchWrap());
         TextView subtitle = UiKit.text(this,
                 "Minecraft Java 1.8.9–26.2 · 채팅과 접속자 목록",
                 14, R.color.text_secondary);
@@ -149,14 +164,19 @@ public final class MainActivity extends Activity {
         LinearLayout updateCard = UiKit.card(this);
         TextView updateTitle = UiKit.sectionTitle(this, "앱 업데이트");
         updateCard.addView(updateTitle);
-        TextView updateGuide = UiKit.text(this,
-                "현재 v" + BuildConfig.VERSION_NAME
-                        + " · GitHub Releases에서 최신 버전을 확인합니다.",
+        updateStatus = UiKit.text(this,
+                "현재 v" + BuildConfig.VERSION_NAME + " · 업데이트 확인 중…",
                 13, R.color.text_secondary);
-        UiKit.margin(updateGuide, 0, 5, 0, 12);
-        updateCard.addView(updateGuide);
-        updateButton = UiKit.button(this, "업데이트 확인", false);
-        updateButton.setOnClickListener(view -> checkForUpdates());
+        UiKit.margin(updateStatus, 0, 5, 0, 12);
+        updateCard.addView(updateStatus);
+        updateButton = UiKit.button(this, "확인 중…", false);
+        updateButton.setEnabled(false);
+        updateButton.setOnClickListener(view -> {
+            GitHubUpdateChecker.ReleaseInfo release = availableUpdate;
+            if (release != null) {
+                beginUpdate(release);
+            }
+        });
         updateCard.addView(updateButton, UiKit.matchWrap());
         LinearLayout.LayoutParams updateCardParams = UiKit.matchWrap();
         updateCardParams.bottomMargin = UiKit.dp(this, 12);
@@ -504,13 +524,30 @@ public final class MainActivity extends Activity {
                 .show();
     }
 
-    private void checkForUpdates() {
+    private void showMoreMenu(View anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add("업데이트 확인");
+        popup.setOnMenuItemClickListener(item -> {
+            checkForUpdates(true);
+            return true;
+        });
+        popup.show();
+    }
+
+    private void checkForUpdates(boolean showResultDialog) {
         if (updateCheckInProgress) {
+            if (showResultDialog) {
+                Toast.makeText(this, "이미 업데이트를 확인하고 있습니다.",
+                        Toast.LENGTH_SHORT).show();
+            }
             return;
         }
         updateCheckInProgress = true;
+        updateStatus.setText("현재 v" + BuildConfig.VERSION_NAME + " · 업데이트 확인 중…");
+        updateStatus.setTextColor(getColor(R.color.text_secondary));
         updateButton.setEnabled(false);
-        updateButton.setText("업데이트 확인 중…");
+        updateButton.setText("확인 중…");
+        styleUpdateButton(false);
         updateExecutor.execute(() -> {
             try {
                 GitHubUpdateChecker.ReleaseInfo release =
@@ -519,25 +556,63 @@ public final class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) {
                         return;
                     }
-                    finishUpdateCheck();
-                    showUpdateResult(release);
+                    applyUpdateResult(release);
+                    if (showResultDialog) {
+                        showUpdateResult(release);
+                    }
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {
                         return;
                     }
-                    finishUpdateCheck();
-                    showError("업데이트 확인 실패", ErrorText.from(error));
+                    updateCheckInProgress = false;
+                    if (availableUpdate == null) {
+                        updateStatus.setText("현재 v" + BuildConfig.VERSION_NAME
+                                + " · 확인 실패 · 우측 상단 ⋮ 메뉴에서 다시 확인하세요.");
+                        updateStatus.setTextColor(getColor(R.color.danger));
+                        updateButton.setText("확인 실패");
+                        updateButton.setEnabled(false);
+                        styleUpdateButton(false);
+                    } else {
+                        showAvailableUpdate(availableUpdate);
+                    }
+                    if (showResultDialog) {
+                        showError("업데이트 확인 실패", ErrorText.from(error));
+                    }
                 });
             }
         });
     }
 
-    private void finishUpdateCheck() {
+    private void applyUpdateResult(GitHubUpdateChecker.ReleaseInfo release) {
         updateCheckInProgress = false;
+        if (VersionOrder.isNewer(release.getTagName(), BuildConfig.VERSION_NAME)) {
+            availableUpdate = release;
+            showAvailableUpdate(release);
+        } else {
+            availableUpdate = null;
+            updateStatus.setText("현재 v" + BuildConfig.VERSION_NAME + " · 최신 버전입니다.");
+            updateStatus.setTextColor(getColor(R.color.text_secondary));
+            updateButton.setText("최신 버전");
+            updateButton.setEnabled(false);
+            styleUpdateButton(false);
+        }
+    }
+
+    private void showAvailableUpdate(GitHubUpdateChecker.ReleaseInfo release) {
+        updateStatus.setText("새 버전이 있습니다: " + release.getTagName()
+                + " · 현재 v" + BuildConfig.VERSION_NAME);
+        updateStatus.setTextColor(getColor(R.color.primary));
+        updateButton.setText("업데이트");
         updateButton.setEnabled(true);
-        updateButton.setText("업데이트 확인");
+        styleUpdateButton(true);
+    }
+
+    private void styleUpdateButton(boolean primary) {
+        updateButton.setTextColor(getColor(primary ? R.color.background : R.color.text_primary));
+        updateButton.setBackground(UiKit.rounded(this,
+                getColor(primary ? R.color.primary : R.color.surface_high), 12));
     }
 
     private void showUpdateResult(GitHubUpdateChecker.ReleaseInfo release) {
@@ -594,6 +669,8 @@ public final class MainActivity extends Activity {
 
     private void downloadAndInstall(GitHubUpdateChecker.ReleaseInfo release) {
         updateCheckInProgress = true;
+        updateStatus.setText(release.getTagName() + " 업데이트를 다운로드하는 중입니다.");
+        updateStatus.setTextColor(getColor(R.color.primary));
         updateButton.setEnabled(false);
         updateButton.setText("업데이트 다운로드 중…");
         updateExecutor.execute(() -> {
@@ -615,7 +692,8 @@ public final class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) {
                         return;
                     }
-                    finishUpdateCheck();
+                    updateCheckInProgress = false;
+                    showAvailableUpdate(release);
                     launchPackageInstaller();
                 });
             } catch (Exception error) {
@@ -623,7 +701,8 @@ public final class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) {
                         return;
                     }
-                    finishUpdateCheck();
+                    updateCheckInProgress = false;
+                    showAvailableUpdate(release);
                     showError("업데이트 실패", ErrorText.from(error));
                 });
             }

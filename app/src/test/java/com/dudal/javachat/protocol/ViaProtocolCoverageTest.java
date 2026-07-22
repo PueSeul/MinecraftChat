@@ -76,7 +76,7 @@ public class ViaProtocolCoverageTest {
 
         @Override
         public String getPlatformVersion() {
-            return "0.8.0-test";
+            return "1.0";
         }
     }
 }

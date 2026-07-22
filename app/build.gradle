@@ -10,15 +10,22 @@ android {
         applicationId = "com.dudal.javachat"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.8.0-test"
+        versionCode = 9
+        versionName = "1.0"
         testInstrumentationRunner = "android.test.InstrumentationTestRunner"
     }
 
     buildTypes {
         release {
             minifyEnabled = false
+            // Keep the existing signing identity so v0.8 users can update without
+            // uninstalling the app and losing their saved servers or login session.
+            signingConfig = signingConfigs.debug
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

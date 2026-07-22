@@ -288,7 +288,7 @@ public final class ViaTranslationRuntime {
 
         @Override
         public String getPlatformVersion() {
-            return "0.8.0-test";
+            return "1.0";
         }
 
         @Override

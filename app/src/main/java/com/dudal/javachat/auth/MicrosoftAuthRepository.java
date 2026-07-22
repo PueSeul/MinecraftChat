@@ -24,7 +24,7 @@ public final class MicrosoftAuthRepository {
     private static final String SESSION_KEY = "microsoft_session";
     private static final String META_PREFS = "auth_meta";
     private static final String ACCOUNT_NAME = "account_name";
-    private static final String USER_AGENT = "JavaChat/0.8 Android";
+    private static final String USER_AGENT = "JavaChat/1.0 Android";
 
     private final SecureStore secureStore;
     private final SharedPreferences metadata;

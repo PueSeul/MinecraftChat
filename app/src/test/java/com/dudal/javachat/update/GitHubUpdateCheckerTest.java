@@ -14,10 +14,10 @@ public final class GitHubUpdateCheckerTest {
     public void parsesExpectedGitHubRelease() throws Exception {
         String json = "{\"tag_name\":\"v1.1\",\"name\":\"Minecraft Chat v1.1\","
                 + "\"body\":\"changes\",\"html_url\":"
-                + "\"https://github.com/PueSeul/JavaChat-Android/releases/tag/v1.1\","
+                + "\"https://github.com/PueSeul/MinecraftChat/releases/tag/v1.1\","
                 + "\"assets\":[{\"name\":\"MinecraftChat-v1.1.apk\",\"size\":12345,"
                 + "\"browser_download_url\":"
-                + "\"https://github.com/PueSeul/JavaChat-Android/releases/download/v1.1/MinecraftChat-v1.1.apk\","
+                + "\"https://github.com/PueSeul/MinecraftChat/releases/download/v1.1/MinecraftChat-v1.1.apk\","
                 + "\"digest\":\"sha256:0123456789abcdef\"}]}";
 
         GitHubUpdateChecker.ReleaseInfo result = new GitHubUpdateChecker()
@@ -31,13 +31,13 @@ public final class GitHubUpdateCheckerTest {
     @Test
     public void onlyAcceptsThisRepositoryReleasePages() {
         assertTrue(GitHubUpdateChecker.isTrustedReleaseUrl(
-                "https://github.com/PueSeul/JavaChat-Android/releases/tag/v1.1"));
+                "https://github.com/PueSeul/MinecraftChat/releases/tag/v1.1"));
         assertFalse(GitHubUpdateChecker.isTrustedReleaseUrl(
-                "https://example.com/PueSeul/JavaChat-Android/releases/tag/v1.1"));
+                "https://example.com/PueSeul/MinecraftChat/releases/tag/v1.1"));
         assertFalse(GitHubUpdateChecker.isTrustedReleaseUrl(
                 "https://github.com/another/repository/releases/tag/v1.1"));
         assertTrue(GitHubUpdateChecker.isTrustedAssetUrl(
-                "https://github.com/PueSeul/JavaChat-Android/releases/download/v1.1/MinecraftChat-v1.1.apk"));
+                "https://github.com/PueSeul/MinecraftChat/releases/download/v1.1/MinecraftChat-v1.1.apk"));
         assertFalse(GitHubUpdateChecker.isTrustedAssetUrl(
                 "https://github.com/another/repository/releases/download/v1.1/MinecraftChat-v1.1.apk"));
     }

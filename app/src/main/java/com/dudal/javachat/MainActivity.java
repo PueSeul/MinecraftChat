@@ -65,6 +65,7 @@ public final class MainActivity extends Activity {
     private LinearLayout serverList;
     private LinearLayout microsoftFields;
     private LinearLayout offlineFields;
+    private LinearLayout updateCard;
     private TextView modeStatus;
     private TextView accountStatus;
     private TextView updateStatus;
@@ -161,16 +162,15 @@ public final class MainActivity extends Activity {
         UiKit.margin(subtitle, 0, 3, 0, 12);
         root.addView(subtitle);
 
-        LinearLayout updateCard = UiKit.card(this);
+        updateCard = UiKit.card(this);
+        updateCard.setVisibility(View.GONE);
         TextView updateTitle = UiKit.sectionTitle(this, "앱 업데이트");
         updateCard.addView(updateTitle);
-        updateStatus = UiKit.text(this,
-                "현재 v" + BuildConfig.VERSION_NAME + " · 업데이트 확인 중…",
-                13, R.color.text_secondary);
+        updateStatus = UiKit.text(this, "신규 버전이 존재합니다.",
+                13, R.color.primary);
         UiKit.margin(updateStatus, 0, 5, 0, 12);
         updateCard.addView(updateStatus);
-        updateButton = UiKit.button(this, "확인 중…", false);
-        updateButton.setEnabled(false);
+        updateButton = UiKit.button(this, "업데이트", true);
         updateButton.setOnClickListener(view -> {
             GitHubUpdateChecker.ReleaseInfo release = availableUpdate;
             if (release != null) {
@@ -543,11 +543,9 @@ public final class MainActivity extends Activity {
             return;
         }
         updateCheckInProgress = true;
-        updateStatus.setText("현재 v" + BuildConfig.VERSION_NAME + " · 업데이트 확인 중…");
-        updateStatus.setTextColor(getColor(R.color.text_secondary));
-        updateButton.setEnabled(false);
-        updateButton.setText("확인 중…");
-        styleUpdateButton(false);
+        if (availableUpdate == null) {
+            updateCard.setVisibility(View.GONE);
+        }
         updateExecutor.execute(() -> {
             try {
                 GitHubUpdateChecker.ReleaseInfo release =
@@ -568,12 +566,7 @@ public final class MainActivity extends Activity {
                     }
                     updateCheckInProgress = false;
                     if (availableUpdate == null) {
-                        updateStatus.setText("현재 v" + BuildConfig.VERSION_NAME
-                                + " · 확인 실패 · 우측 상단 ⋮ 메뉴에서 다시 확인하세요.");
-                        updateStatus.setTextColor(getColor(R.color.danger));
-                        updateButton.setText("확인 실패");
-                        updateButton.setEnabled(false);
-                        styleUpdateButton(false);
+                        updateCard.setVisibility(View.GONE);
                     } else {
                         showAvailableUpdate(availableUpdate);
                     }
@@ -592,17 +585,13 @@ public final class MainActivity extends Activity {
             showAvailableUpdate(release);
         } else {
             availableUpdate = null;
-            updateStatus.setText("현재 v" + BuildConfig.VERSION_NAME + " · 최신 버전입니다.");
-            updateStatus.setTextColor(getColor(R.color.text_secondary));
-            updateButton.setText("최신 버전");
-            updateButton.setEnabled(false);
-            styleUpdateButton(false);
+            updateCard.setVisibility(View.GONE);
         }
     }
 
     private void showAvailableUpdate(GitHubUpdateChecker.ReleaseInfo release) {
-        updateStatus.setText("새 버전이 있습니다: " + release.getTagName()
-                + " · 현재 v" + BuildConfig.VERSION_NAME);
+        updateCard.setVisibility(View.VISIBLE);
+        updateStatus.setText("신규 버전이 존재합니다. " + release.getTagName());
         updateStatus.setTextColor(getColor(R.color.primary));
         updateButton.setText("업데이트");
         updateButton.setEnabled(true);
@@ -669,6 +658,7 @@ public final class MainActivity extends Activity {
 
     private void downloadAndInstall(GitHubUpdateChecker.ReleaseInfo release) {
         updateCheckInProgress = true;
+        updateCard.setVisibility(View.VISIBLE);
         updateStatus.setText(release.getTagName() + " 업데이트를 다운로드하는 중입니다.");
         updateStatus.setTextColor(getColor(R.color.primary));
         updateButton.setEnabled(false);

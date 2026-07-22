@@ -20,11 +20,11 @@ import java.security.NoSuchAlgorithmException;
 
 public final class GitHubUpdateChecker {
     static final String LATEST_RELEASE_API =
-            "https://api.github.com/repos/PueSeul/JavaChat-Android/releases/latest";
+            "https://api.github.com/repos/PueSeul/MinecraftChat/releases/latest";
     public static final String RELEASES_PAGE =
-            "https://github.com/PueSeul/JavaChat-Android/releases";
+            "https://github.com/PueSeul/MinecraftChat/releases";
     private static final String EXPECTED_RELEASE_PATH =
-            "/PueSeul/JavaChat-Android/releases/";
+            "/PueSeul/MinecraftChat/releases/";
     private static final int TIMEOUT_MS = 10_000;
     private static final long MAX_APK_BYTES = 300L * 1024L * 1024L;
     private final Gson gson = new Gson();

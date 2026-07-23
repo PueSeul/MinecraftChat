@@ -114,6 +114,12 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
             Intent start = new Intent(this, MinecraftConnectionService.class)
                     .setAction(MinecraftConnectionService.ACTION_CONNECT)
                     .putExtra(MinecraftConnectionService.EXTRA_SERVER_ID, serverId);
+            String detectedVersionId = getIntent().getStringExtra(
+                    MinecraftConnectionService.EXTRA_DETECTED_VERSION_ID);
+            if (detectedVersionId != null) {
+                start.putExtra(MinecraftConnectionService.EXTRA_DETECTED_VERSION_ID,
+                        detectedVersionId);
+            }
             startForegroundService(start);
         }
         bindService(new Intent(this, MinecraftConnectionService.class),

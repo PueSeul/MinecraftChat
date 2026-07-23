@@ -28,7 +28,7 @@ public final class SavedServer {
                 "새 서버",
                 "",
                 25565,
-                "java-26.2"
+                "auto"
         );
     }
 

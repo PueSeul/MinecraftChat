@@ -16,6 +16,7 @@ public class ServerStatusResultTest {
         assertEquals(20, online.getMaxPlayers());
         assertEquals(42, online.getLatencyMs());
         assertEquals("26.2", online.getVersionName());
+        assertEquals(-1, online.getProtocolVersion());
 
         assertFalse(ServerStatusResult.offline().isOnline());
     }
@@ -30,5 +31,13 @@ public class ServerStatusResultTest {
         byte[] returned = result.getIconPng();
         returned[1] = 9;
         assertArrayEquals(new byte[]{1, 2, 3, 4}, result.getIconPng());
+    }
+
+    @Test
+    public void keepsDetectedProtocolVersion() {
+        ServerStatusResult result = ServerStatusResult.online(
+                3, 20, 42, "1.21.9", 773, null);
+
+        assertEquals(773, result.getProtocolVersion());
     }
 }

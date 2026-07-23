@@ -9,6 +9,11 @@ import static org.junit.Assert.assertFalse;
 
 public class SavedServerCompatibilityTest {
     @Test
+    public void newServersDefaultToAutomaticVersionDetection() {
+        assertEquals("auto", SavedServer.createDefault().getVersionId());
+    }
+
+    @Test
     public void readsLegacyServerAndDropsPerServerAuthWhenSavedAgain() {
         String legacy = "{"
                 + "\"id\":\"legacy\","

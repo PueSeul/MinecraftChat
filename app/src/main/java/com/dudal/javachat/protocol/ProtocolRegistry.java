@@ -1,6 +1,9 @@
 package com.dudal.javachat.protocol;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Minecraft Java release versions supported by the bundled translation engine.
@@ -8,6 +11,9 @@ import java.util.List;
  * saved server can match the exact version its owner advertises.
  */
 public final class ProtocolRegistry {
+    public static final String AUTO_ID = "auto";
+    public static final ProtocolSpec AUTO = new ProtocolSpec(
+            AUTO_ID, "Auto (자동 감지)", -1);
     public static final ProtocolSpec JAVA_26_2 = spec("26.2", 776);
 
     private static final List<ProtocolSpec> SUPPORTED = List.of(
@@ -77,6 +83,7 @@ public final class ProtocolRegistry {
             spec("1.9", 107),
             spec("1.8.9", 47)
     );
+    private static final List<ProtocolSpec> SELECTABLE = selectable();
 
     private ProtocolRegistry() {}
 
@@ -88,6 +95,61 @@ public final class ProtocolRegistry {
         return SUPPORTED;
     }
 
+    public static List<ProtocolSpec> selectableVersions() {
+        return SELECTABLE;
+    }
+
+    public static boolean isAuto(String id) {
+        return AUTO_ID.equals(id);
+    }
+
+    public static String selectionDisplayName(String id) {
+        return isAuto(id) ? "Auto" : require(id).getDisplayName();
+    }
+
+    public static Optional<ProtocolSpec> detect(int protocolNumber, String advertisedVersion) {
+        Optional<ProtocolSpec> advertised = detectAdvertisedVersion(advertisedVersion);
+        if (advertised.isPresent()) {
+            return advertised;
+        }
+
+        List<ProtocolSpec> matches = new ArrayList<>();
+        for (ProtocolSpec item : SUPPORTED) {
+            if (item.getProtocolNumber() == protocolNumber) {
+                matches.add(item);
+            }
+        }
+        if (matches.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(matches.get(0));
+    }
+
+    private static Optional<ProtocolSpec> detectAdvertisedVersion(String advertisedVersion) {
+        if (advertisedVersion == null || advertisedVersion.isBlank()) {
+            return Optional.empty();
+        }
+        java.util.regex.Matcher versions = Pattern.compile(
+                "(?<![0-9.])([0-9]+(?:\\.[0-9]+){1,2})(?![0-9.])")
+                .matcher(advertisedVersion);
+        while (versions.find()) {
+            String advertised = versions.group(1);
+            for (ProtocolSpec item : SUPPORTED) {
+                String supported = item.getId().substring("java-".length());
+                if (supported.equalsIgnoreCase(advertised)) {
+                    return Optional.of(item);
+                }
+            }
+            for (ProtocolSpec item : SUPPORTED) {
+                String supported = item.getId().substring("java-".length());
+                if (supported.startsWith(advertised + ".")) {
+                    return Optional.of(item);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public static ProtocolSpec require(String id) {
         return SUPPORTED.stream()
                 .filter(item -> item.getId().equals(id))
@@ -97,5 +159,19 @@ public final class ProtocolRegistry {
 
     public static ProtocolAdapter adapterFor(String id) {
         return new Mc26_2ProtocolAdapter(require(id));
+    }
+
+    public static ProtocolAdapter adapterFor(ProtocolSpec spec) {
+        if (spec == null || isAuto(spec.getId())) {
+            throw new IllegalArgumentException("접속에 사용할 Minecraft 버전이 필요합니다.");
+        }
+        return new Mc26_2ProtocolAdapter(spec);
+    }
+
+    private static List<ProtocolSpec> selectable() {
+        List<ProtocolSpec> values = new ArrayList<>(SUPPORTED.size() + 1);
+        values.add(AUTO);
+        values.addAll(SUPPORTED);
+        return List.copyOf(values);
     }
 }

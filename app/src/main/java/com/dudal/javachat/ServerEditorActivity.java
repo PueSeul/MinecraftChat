@@ -82,7 +82,7 @@ public final class ServerEditorActivity extends Activity {
 
         addLabel(root, "Minecraft 버전");
         versionSpinner = new Spinner(this);
-        List<ProtocolSpec> versions = ProtocolRegistry.supportedVersions();
+        List<ProtocolSpec> versions = ProtocolRegistry.selectableVersions();
         ArrayAdapter<ProtocolSpec> versionAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_dropdown_item, versions);
         versionSpinner.setAdapter(versionAdapter);
@@ -90,6 +90,11 @@ public final class ServerEditorActivity extends Activity {
         versionSpinner.setBackground(UiKit.rounded(this, getColor(R.color.surface_high), 12));
         root.addView(versionSpinner, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, UiKit.dp(this, 52)));
+        TextView autoGuide = UiKit.text(this,
+                "Auto는 접속할 때 서버의 Minecraft 버전을 자동으로 감지합니다.",
+                12, R.color.text_secondary);
+        UiKit.margin(autoGuide, 2, 7, 2, 0);
+        root.addView(autoGuide);
 
         Button save = UiKit.button(this, "저장", true);
         save.setOnClickListener(view -> save());
@@ -126,7 +131,7 @@ public final class ServerEditorActivity extends Activity {
         nameInput.setText(server.getName());
         hostInput.setText(server.getHost());
         portInput.setText(String.valueOf(server.getPort()));
-        List<ProtocolSpec> versions = ProtocolRegistry.supportedVersions();
+        List<ProtocolSpec> versions = ProtocolRegistry.selectableVersions();
         for (int index = 0; index < versions.size(); index++) {
             if (versions.get(index).getId().equals(server.getVersionId())) {
                 versionSpinner.setSelection(index);

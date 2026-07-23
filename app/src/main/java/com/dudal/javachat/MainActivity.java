@@ -42,6 +42,7 @@ import com.dudal.javachat.data.SavedServer;
 import com.dudal.javachat.data.ServerRepository;
 import com.dudal.javachat.service.MinecraftConnectionService;
 import com.dudal.javachat.protocol.ProtocolRegistry;
+import com.dudal.javachat.protocol.ProtocolSpec;
 import com.dudal.javachat.status.ServerStatusChecker;
 import com.dudal.javachat.status.ServerStatusResult;
 import com.dudal.javachat.ui.UiKit;
@@ -58,7 +59,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -102,6 +106,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService statusExecutor = Executors.newFixedThreadPool(3);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private final AtomicInteger statusGeneration = new AtomicInteger();
+    private final Map<String, String> detectedVersionHints = new ConcurrentHashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -387,6 +392,7 @@ public final class MainActivity extends Activity {
 
     private void refreshServers() {
         int generation = statusGeneration.incrementAndGet();
+        detectedVersionHints.clear();
         serverList.removeAllViews();
         List<SavedServer> values = servers.getAll();
         if (pullRefreshActive) {
@@ -448,7 +454,7 @@ public final class MainActivity extends Activity {
         String authLabel = connectionSettings.getAuthMode() == AuthMode.MICROSOFT
                 ? "현재 온라인" : "현재 오프라인";
         TextView details = UiKit.text(this,
-                ProtocolRegistry.require(server.getVersionId()).getDisplayName()
+                ProtocolRegistry.selectionDisplayName(server.getVersionId())
                         + " · " + authLabel, 13, R.color.primary);
         details.setSingleLine(true);
         details.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -496,7 +502,7 @@ public final class MainActivity extends Activity {
         actionsParams.topMargin = UiKit.dp(this, 8);
         card.addView(actions, actionsParams);
 
-        checkServerStatus(server, status, serverIcon, generation);
+        checkServerStatus(server, status, details, serverIcon, generation);
 
         LinearLayout.LayoutParams cardParams = UiKit.matchWrap();
         cardParams.bottomMargin = UiKit.dp(this, 18);
@@ -504,7 +510,7 @@ public final class MainActivity extends Activity {
         return card;
     }
 
-    private void checkServerStatus(SavedServer server, TextView view,
+    private void checkServerStatus(SavedServer server, TextView view, TextView details,
                                    ImageView iconView, int generation) {
         statusExecutor.execute(() -> {
             ServerStatusResult result = ServerStatusChecker.query(server);
@@ -520,13 +526,36 @@ public final class MainActivity extends Activity {
                             result.getOnlinePlayers(), result.getMaxPlayers(), result.getLatencyMs()));
                     view.setTextColor(getColor(R.color.primary));
                     applyServerIcon(iconView, icon);
+                    applyDetectedVersion(server, result, details);
                 } else {
                     view.setText(R.string.server_status_offline);
                     view.setTextColor(getColor(R.color.danger));
+                    detectedVersionHints.remove(server.getId());
                 }
                 completePullRefreshCheck(generation);
             });
         });
+    }
+
+    private void applyDetectedVersion(SavedServer server, ServerStatusResult result,
+                                      TextView details) {
+        if (!ProtocolRegistry.isAuto(server.getVersionId())) {
+            return;
+        }
+        String authLabel = connectionSettings.getAuthMode() == AuthMode.MICROSOFT
+                ? "현재 온라인" : "현재 오프라인";
+        Optional<ProtocolSpec> detected =
+                ProtocolRegistry.detect(result.getProtocolVersion(), result.getVersionName());
+        if (detected.isPresent()) {
+            detectedVersionHints.put(server.getId(), detected.get().getId());
+            details.setText("Auto → " + detected.get().getDisplayName()
+                    + " · " + authLabel);
+            details.setTextColor(getColor(R.color.primary));
+        } else {
+            detectedVersionHints.remove(server.getId());
+            details.setText("Auto → 미지원 버전 · " + authLabel);
+            details.setTextColor(getColor(R.color.danger));
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -662,6 +691,11 @@ public final class MainActivity extends Activity {
         }
         Intent intent = new Intent(this, ChatActivity.class);
         intent.putExtra(MinecraftConnectionService.EXTRA_SERVER_ID, server.getId());
+        String detectedVersionId = detectedVersionHints.get(server.getId());
+        if (ProtocolRegistry.isAuto(server.getVersionId()) && detectedVersionId != null) {
+            intent.putExtra(MinecraftConnectionService.EXTRA_DETECTED_VERSION_ID,
+                    detectedVersionId);
+        }
         startActivity(intent);
     }
 

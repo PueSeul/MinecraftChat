@@ -27,6 +27,9 @@ import com.dudal.javachat.protocol.ConnectionState;
 import com.dudal.javachat.protocol.PlayerView;
 import com.dudal.javachat.protocol.ProtocolConnection;
 import com.dudal.javachat.protocol.ProtocolRegistry;
+import com.dudal.javachat.protocol.ProtocolSpec;
+import com.dudal.javachat.status.ServerStatusChecker;
+import com.dudal.javachat.status.ServerStatusResult;
 import com.dudal.javachat.util.ErrorText;
 
 import java.util.ArrayList;
@@ -41,6 +44,7 @@ public final class MinecraftConnectionService extends Service implements Connect
     public static final String ACTION_CONNECT = "com.dudal.javachat.CONNECT";
     public static final String ACTION_DISCONNECT = "com.dudal.javachat.DISCONNECT";
     public static final String EXTRA_SERVER_ID = "server_id";
+    public static final String EXTRA_DETECTED_VERSION_ID = "detected_version_id";
 
     private static final String CHANNEL_ID = "minecraft_connection";
     private static final int NOTIFICATION_ID = 262;
@@ -77,8 +81,9 @@ public final class MinecraftConnectionService extends Service implements Connect
         if (ACTION_CONNECT.equals(intent.getAction())) {
             stopping = false;
             String serverId = intent.getStringExtra(EXTRA_SERVER_ID);
+            String detectedVersionId = intent.getStringExtra(EXTRA_DETECTED_VERSION_ID);
             startForeground(NOTIFICATION_ID, buildNotification("연결 준비 중"));
-            connect(serverId);
+            connect(serverId, detectedVersionId);
         }
         return START_NOT_STICKY;
     }
@@ -208,7 +213,7 @@ public final class MinecraftConnectionService extends Service implements Connect
         });
     }
 
-    private void connect(String serverId) {
+    private void connect(String serverId, String detectedVersionId) {
         SavedServer currentServer = activeServer;
         if (currentServer != null && currentServer.getId().equals(serverId)
                 && state != ConnectionState.DISCONNECTED && state != ConnectionState.ERROR) {
@@ -227,6 +232,7 @@ public final class MinecraftConnectionService extends Service implements Connect
                 if (old != null) {
                     old.disconnect();
                 }
+                ProtocolSpec protocolSpec = resolveProtocol(server, detectedVersionId);
 
                 ConnectionSettingsRepository settings =
                         new ConnectionSettingsRepository(this);
@@ -245,7 +251,7 @@ public final class MinecraftConnectionService extends Service implements Connect
                 }
 
                 ProtocolConnection created = ProtocolRegistry
-                        .adapterFor(server.getVersionId())
+                        .adapterFor(protocolSpec)
                         .create(server, identity, this);
                 connection = created;
                 created.connect();
@@ -262,7 +268,41 @@ public final class MinecraftConnectionService extends Service implements Connect
         if (server.getPort() < 1 || server.getPort() > 65535) {
             throw new IllegalArgumentException("포트는 1~65535 범위여야 합니다.");
         }
-        ProtocolRegistry.require(server.getVersionId());
+        if (!ProtocolRegistry.isAuto(server.getVersionId())) {
+            ProtocolRegistry.require(server.getVersionId());
+        }
+    }
+
+    private ProtocolSpec resolveProtocol(SavedServer server, String detectedVersionId) {
+        if (!ProtocolRegistry.isAuto(server.getVersionId())) {
+            return ProtocolRegistry.require(server.getVersionId());
+        }
+        if (detectedVersionId != null && !detectedVersionId.isBlank()) {
+            ProtocolSpec hinted = ProtocolRegistry.require(detectedVersionId);
+            onStateChanged(ConnectionState.CONNECTING,
+                    "Auto → " + hinted.getDisplayName());
+            return hinted;
+        }
+        onStateChanged(ConnectionState.CONNECTING, "서버 버전 자동 감지 중");
+        ServerStatusResult status = ServerStatusChecker.query(server);
+        if (!status.isOnline() || status.getProtocolVersion() < 0) {
+            throw new IllegalArgumentException(
+                    "서버 버전을 자동으로 감지하지 못했습니다. 서버 상태를 확인하거나 버전을 직접 선택해 주세요.");
+        }
+        ProtocolSpec detected = ProtocolRegistry.detect(
+                        status.getProtocolVersion(), status.getVersionName())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "자동 감지된 서버 버전을 지원하지 않습니다: "
+                                + readableVersion(status)));
+        onStateChanged(ConnectionState.CONNECTING,
+                "Auto → " + detected.getDisplayName());
+        return detected;
+    }
+
+    private static String readableVersion(ServerStatusResult status) {
+        String name = status.getVersionName();
+        return (name == null || name.isBlank() ? "알 수 없는 버전" : name)
+                + " (프로토콜 " + status.getProtocolVersion() + ")";
     }
 
     private List<ChatLine> snapshotChats() {

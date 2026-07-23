@@ -50,6 +50,7 @@ public class ServerStatusCheckerTest {
             assertEquals(3, result.getOnlinePlayers());
             assertEquals(20, result.getMaxPlayers());
             assertEquals("26.2", result.getVersionName());
+            assertEquals(776, result.getProtocolVersion());
             assertArrayEquals(icon, result.getIconPng());
         } finally {
             testServer.close(true);

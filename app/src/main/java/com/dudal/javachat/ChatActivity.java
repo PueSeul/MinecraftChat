@@ -38,6 +38,7 @@ import com.dudal.javachat.protocol.CommandSuggestions;
 import com.dudal.javachat.protocol.ConnectionState;
 import com.dudal.javachat.protocol.PlayerView;
 import com.dudal.javachat.service.MinecraftConnectionService;
+import com.dudal.javachat.ui.MinecraftChatText;
 import com.dudal.javachat.ui.UiKit;
 import com.dudal.javachat.ui.SkinHeadLoader;
 
@@ -361,8 +362,6 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     private void addChatLine(ChatLine line) {
         LinearLayout row = UiKit.vertical(this);
         String time = timeFormat.format(new Date(line.getTimestamp()));
-        String sender = line.getSender() == null || line.getSender().isBlank()
-                ? "" : line.getSender();
         int messageColor = switch (line.getKind()) {
             case LOCAL_ERROR -> R.color.danger;
             case PRESENCE -> R.color.chat_presence;
@@ -371,7 +370,9 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
         };
         LinearLayout metaRow = new LinearLayout(this);
         metaRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView senderView = UiKit.text(this, sender, 11, R.color.text_secondary);
+        TextView senderView = UiKit.text(this, "", 11, R.color.text_secondary);
+        senderView.setText(MinecraftChatText.format(
+                line.getFormattedSender(), getColor(R.color.text_secondary)));
         metaRow.addView(senderView, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView timeView = UiKit.text(this, time, 11, R.color.text_secondary);
@@ -379,7 +380,9 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
         metaRow.addView(timeView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         row.addView(metaRow, UiKit.matchWrap());
-        TextView message = UiKit.text(this, line.getMessage(), 15, messageColor);
+        TextView message = UiKit.text(this, "", 15, messageColor);
+        message.setText(MinecraftChatText.format(
+                line.getFormattedMessage(), getColor(messageColor)));
         UiKit.margin(message, 0, 2, 0, 0);
         row.addView(message);
         UiKit.margin(row, 0, 8, 0, 8);

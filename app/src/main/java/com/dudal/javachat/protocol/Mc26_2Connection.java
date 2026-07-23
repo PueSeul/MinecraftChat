@@ -323,18 +323,18 @@ final class Mc26_2Connection implements ProtocolConnection {
                 }
             }
             String content = chat.getUnsignedContent() != null
-                    ? ComponentText.plain(chat.getUnsignedContent()) : chat.getContent();
+                    ? ComponentText.legacy(chat.getUnsignedContent()) : chat.getContent();
             listener.onChat(new ChatLine(
                     chat.getTimeStamp(),
                     ChatLine.Kind.PLAYER,
-                    ComponentText.plain(chat.getName()),
+                    ComponentText.legacy(chat.getName()),
                     content));
         } else if (packet instanceof ClientboundDisguisedChatPacket chat) {
             listener.onChat(new ChatLine(
                     System.currentTimeMillis(),
                     ChatLine.Kind.PLAYER,
-                    ComponentText.plain(chat.getName()),
-                    ComponentText.plain(chat.getMessage())));
+                    ComponentText.legacy(chat.getName()),
+                    ComponentText.legacy(chat.getMessage())));
         } else if (packet instanceof ClientboundSystemChatPacket chat
                 && !chat.isOverlay()) {
             String message = SystemChatFilter.displayText(chat.getContent());

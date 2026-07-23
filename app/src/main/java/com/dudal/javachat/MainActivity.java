@@ -9,16 +9,23 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
@@ -66,6 +73,7 @@ public final class MainActivity extends Activity {
     private LinearLayout microsoftFields;
     private LinearLayout offlineFields;
     private LinearLayout updateCard;
+    private TextView pullRefreshIndicator;
     private TextView modeStatus;
     private TextView accountStatus;
     private TextView updateStatus;
@@ -73,11 +81,24 @@ public final class MainActivity extends Activity {
     private Button onlineModeButton;
     private Button offlineModeButton;
     private Button updateButton;
+    private Button serverRefreshButton;
     private EditText offlineNicknameInput;
     private boolean loginInProgress;
     private boolean updateCheckInProgress;
     private GitHubUpdateChecker.ReleaseInfo availableUpdate;
     private GitHubUpdateChecker.ReleaseInfo pendingUpdate;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean pullRefreshActive;
+    private boolean pullTracking;
+    private float pullStartY;
+    private float pullDistance;
+    private int pullRefreshGeneration = -1;
+    private int pendingPullRefreshChecks;
+    private final Runnable hidePullRefreshIndicator = () -> {
+        if (!pullRefreshActive && pullRefreshIndicator != null) {
+            pullRefreshIndicator.setVisibility(View.GONE);
+        }
+    };
     private final ExecutorService statusExecutor = Executors.newFixedThreadPool(3);
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private final AtomicInteger statusGeneration = new AtomicInteger();
@@ -105,6 +126,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         statusGeneration.incrementAndGet();
+        mainHandler.removeCallbacks(hidePullRefreshIndicator);
         statusExecutor.shutdownNow();
         updateExecutor.shutdownNow();
         auth.close();
@@ -139,9 +161,18 @@ public final class MainActivity extends Activity {
         // Keep the scroll viewport itself inside the system bars. Applying the
         // insets to the scrolling child lets its padding scroll under a bar.
         UiKit.applySafeInsets(scroll);
+        configurePullToRefresh(scroll);
         scroll.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        pullRefreshIndicator = UiKit.text(this,
+                "↓ 서버 목록 새로고침", 12, R.color.text_secondary);
+        pullRefreshIndicator.setGravity(Gravity.CENTER);
+        pullRefreshIndicator.setVisibility(View.GONE);
+        pullRefreshIndicator.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        pullRefreshIndicator.setPadding(0, 0, 0, UiKit.dp(this, 10));
+        root.addView(pullRefreshIndicator, UiKit.matchWrap());
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -244,6 +275,13 @@ public final class MainActivity extends Activity {
         TextView serverTitle = UiKit.sectionTitle(this, "저장한 서버");
         serverHeader.addView(serverTitle, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        serverRefreshButton = UiKit.button(this, "새로고침", false);
+        serverRefreshButton.setTextSize(13);
+        serverRefreshButton.setOnClickListener(view -> startPullRefresh());
+        LinearLayout.LayoutParams refreshButtonParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        refreshButtonParams.setMarginEnd(UiKit.dp(this, 8));
+        serverHeader.addView(serverRefreshButton, refreshButtonParams);
         Button add = UiKit.button(this, "+ 서버 추가", true);
         add.setOnClickListener(view -> startActivity(new Intent(this, ServerEditorActivity.class)));
         serverHeader.addView(add, new LinearLayout.LayoutParams(
@@ -351,6 +389,10 @@ public final class MainActivity extends Activity {
         int generation = statusGeneration.incrementAndGet();
         serverList.removeAllViews();
         List<SavedServer> values = servers.getAll();
+        if (pullRefreshActive) {
+            pullRefreshGeneration = generation;
+            pendingPullRefreshChecks = values.size();
+        }
         if (values.isEmpty()) {
             TextView empty = UiKit.text(this,
                     "아직 저장한 서버가 없습니다.\n서버 주소를 추가해 주세요.",
@@ -359,6 +401,7 @@ public final class MainActivity extends Activity {
             empty.setPadding(0, UiKit.dp(this, 34), 0, UiKit.dp(this, 34));
             empty.setBackground(UiKit.rounded(this, getColor(R.color.surface), 16));
             serverList.addView(empty, UiKit.matchWrap());
+            finishPullRefresh(generation);
             return;
         }
         for (SavedServer server : values) {
@@ -392,36 +435,39 @@ public final class MainActivity extends Activity {
                 12, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         UiKit.margin(endpoint, 0, 3, 0, 0);
         identity.addView(endpoint, UiKit.matchWrap());
-        infoRow.addView(identity, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.42f));
-
-        LinearLayout serverState = UiKit.vertical(this);
 
         TextView status = UiKit.text(this, getString(R.string.server_status_checking),
                 13, R.color.text_secondary);
-        status.setGravity(Gravity.END);
         status.setSingleLine(true);
         status.setEllipsize(android.text.TextUtils.TruncateAt.END);
         status.setAutoSizeTextTypeUniformWithConfiguration(
                 11, 13, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-        serverState.addView(status, UiKit.matchWrap());
+        UiKit.margin(status, 0, 5, 0, 0);
+        identity.addView(status, UiKit.matchWrap());
 
         String authLabel = connectionSettings.getAuthMode() == AuthMode.MICROSOFT
                 ? "현재 온라인" : "현재 오프라인";
         TextView details = UiKit.text(this,
                 ProtocolRegistry.require(server.getVersionId()).getDisplayName()
                         + " · " + authLabel, 13, R.color.primary);
-        details.setGravity(Gravity.END);
         details.setSingleLine(true);
         details.setEllipsize(android.text.TextUtils.TruncateAt.END);
         details.setAutoSizeTextTypeUniformWithConfiguration(
                 11, 13, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         UiKit.margin(details, 0, 3, 0, 0);
-        serverState.addView(details, UiKit.matchWrap());
-        LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.58f);
-        stateParams.setMarginStart(UiKit.dp(this, 8));
-        infoRow.addView(serverState, stateParams);
+        identity.addView(details, UiKit.matchWrap());
+        infoRow.addView(identity, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        ImageView serverIcon = new ImageView(this);
+        serverIcon.setContentDescription(server.getName() + " 서버 아이콘");
+        serverIcon.setBackground(UiKit.rounded(this, getColor(R.color.surface_high), 10));
+        serverIcon.setClipToOutline(true);
+        applyServerIcon(serverIcon, null);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
+                UiKit.dp(this, 64), UiKit.dp(this, 64));
+        iconParams.setMarginStart(UiKit.dp(this, 14));
+        infoRow.addView(serverIcon, iconParams);
         card.addView(infoRow, UiKit.matchWrap());
 
         LinearLayout actions = new LinearLayout(this);
@@ -450,7 +496,7 @@ public final class MainActivity extends Activity {
         actionsParams.topMargin = UiKit.dp(this, 8);
         card.addView(actions, actionsParams);
 
-        checkServerStatus(server, status, generation);
+        checkServerStatus(server, status, serverIcon, generation);
 
         LinearLayout.LayoutParams cardParams = UiKit.matchWrap();
         cardParams.bottomMargin = UiKit.dp(this, 18);
@@ -458,24 +504,149 @@ public final class MainActivity extends Activity {
         return card;
     }
 
-    private void checkServerStatus(SavedServer server, TextView view, int generation) {
+    private void checkServerStatus(SavedServer server, TextView view,
+                                   ImageView iconView, int generation) {
         statusExecutor.execute(() -> {
             ServerStatusResult result = ServerStatusChecker.query(server);
+            Bitmap icon = decodeServerIcon(result.getIconPng());
             runOnUiThread(() -> {
                 if (isDestroyed() || generation != statusGeneration.get()
                         || !view.isAttachedToWindow()) {
+                    completePullRefreshCheck(generation);
                     return;
                 }
                 if (result.isOnline()) {
                     view.setText(getString(R.string.server_status_online,
                             result.getOnlinePlayers(), result.getMaxPlayers(), result.getLatencyMs()));
                     view.setTextColor(getColor(R.color.primary));
+                    applyServerIcon(iconView, icon);
                 } else {
                     view.setText(R.string.server_status_offline);
                     view.setTextColor(getColor(R.color.danger));
                 }
+                completePullRefreshCheck(generation);
             });
         });
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private void configurePullToRefresh(ScrollView scroll) {
+        scroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
+        scroll.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    pullTracking = !scroll.canScrollVertically(-1);
+                    pullStartY = event.getY();
+                    pullDistance = 0;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (!pullTracking && !scroll.canScrollVertically(-1)) {
+                        pullTracking = true;
+                        pullStartY = event.getY();
+                    }
+                    if (pullTracking && !scroll.canScrollVertically(-1)) {
+                        pullDistance = Math.max(0, event.getY() - pullStartY);
+                        updatePullRefreshPreview();
+                    }
+                }
+                case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    boolean shouldRefresh = event.getActionMasked() == MotionEvent.ACTION_UP
+                            && pullTracking
+                            && pullDistance >= UiKit.dp(this, 72)
+                            && !pullRefreshActive;
+                    pullTracking = false;
+                    pullDistance = 0;
+                    if (shouldRefresh) {
+                        startPullRefresh();
+                    } else if (!pullRefreshActive) {
+                        pullRefreshIndicator.setVisibility(View.GONE);
+                    }
+                }
+                default -> { }
+            }
+            return false;
+        });
+    }
+
+    private void updatePullRefreshPreview() {
+        if (pullRefreshActive || pullDistance < UiKit.dp(this, 12)) {
+            return;
+        }
+        boolean ready = pullDistance >= UiKit.dp(this, 72);
+        pullRefreshIndicator.setText(ready
+                ? "놓아서 서버 목록 새로고침"
+                : "↓ 서버 목록 새로고침");
+        pullRefreshIndicator.setTextColor(getColor(
+                ready ? R.color.primary : R.color.text_secondary));
+        pullRefreshIndicator.setVisibility(View.VISIBLE);
+    }
+
+    private void startPullRefresh() {
+        if (pullRefreshActive) {
+            return;
+        }
+        mainHandler.removeCallbacks(hidePullRefreshIndicator);
+        pullRefreshActive = true;
+        serverRefreshButton.setEnabled(false);
+        pullRefreshIndicator.setText("서버 목록 새로고침 중…");
+        pullRefreshIndicator.setTextColor(getColor(R.color.primary));
+        pullRefreshIndicator.setVisibility(View.VISIBLE);
+        refreshServers();
+    }
+
+    private void completePullRefreshCheck(int generation) {
+        if (!pullRefreshActive || generation != pullRefreshGeneration) {
+            return;
+        }
+        pendingPullRefreshChecks--;
+        if (pendingPullRefreshChecks <= 0) {
+            finishPullRefresh(generation);
+        }
+    }
+
+    private void finishPullRefresh(int generation) {
+        if (!pullRefreshActive || generation != pullRefreshGeneration) {
+            return;
+        }
+        pullRefreshActive = false;
+        pendingPullRefreshChecks = 0;
+        serverRefreshButton.setEnabled(true);
+        pullRefreshIndicator.setText("서버 목록 새로고침 완료");
+        pullRefreshIndicator.setTextColor(getColor(R.color.primary));
+        pullRefreshIndicator.setVisibility(View.VISIBLE);
+        mainHandler.removeCallbacks(hidePullRefreshIndicator);
+        mainHandler.postDelayed(hidePullRefreshIndicator, 700L);
+    }
+
+    private Bitmap decodeServerIcon(byte[] iconPng) {
+        if (iconPng == null || iconPng.length == 0 || iconPng.length > 1024 * 1024) {
+            return null;
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(iconPng, 0, iconPng.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0
+                || bounds.outWidth > 512 || bounds.outHeight > 512) {
+            return null;
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inScaled = false;
+        return BitmapFactory.decodeByteArray(iconPng, 0, iconPng.length, options);
+    }
+
+    private void applyServerIcon(ImageView view, Bitmap icon) {
+        if (icon == null) {
+            int padding = UiKit.dp(this, 8);
+            view.setPadding(padding, padding, padding, padding);
+            view.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            view.setImageResource(R.drawable.ic_launcher);
+            return;
+        }
+        view.setPadding(0, 0, 0, 0);
+        view.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        BitmapDrawable drawable = new BitmapDrawable(getResources(), icon);
+        drawable.setFilterBitmap(false);
+        view.setImageDrawable(drawable);
     }
 
     private void openChat(SavedServer server) {

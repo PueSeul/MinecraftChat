@@ -67,7 +67,8 @@ public final class ServerStatusChecker {
                     players == null ? 0 : players.getOnlinePlayers(),
                     players == null ? 0 : players.getMaxPlayers(),
                     measuredLatency,
-                    version == null ? null : version.getVersionName());
+                    version == null ? null : version.getVersionName(),
+                    info.getIconPng());
         } catch (Throwable ignored) {
             return ServerStatusResult.offline();
         } finally {

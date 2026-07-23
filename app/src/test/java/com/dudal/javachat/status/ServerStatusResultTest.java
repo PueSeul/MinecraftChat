@@ -2,6 +2,7 @@ package com.dudal.javachat.status;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -17,5 +18,17 @@ public class ServerStatusResultTest {
         assertEquals("26.2", online.getVersionName());
 
         assertFalse(ServerStatusResult.offline().isOnline());
+    }
+
+    @Test
+    public void keepsDefensiveCopyOfServerIcon() {
+        byte[] icon = {1, 2, 3, 4};
+        ServerStatusResult result = ServerStatusResult.online(1, 20, 4, "1.21", icon);
+        icon[0] = 9;
+
+        assertArrayEquals(new byte[]{1, 2, 3, 4}, result.getIconPng());
+        byte[] returned = result.getIconPng();
+        returned[1] = 9;
+        assertArrayEquals(new byte[]{1, 2, 3, 4}, result.getIconPng());
     }
 }

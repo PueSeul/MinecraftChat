@@ -17,6 +17,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.util.List;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -30,12 +31,13 @@ public class ServerStatusCheckerTest {
 
         Server testServer = new NetworkServer(
                 new InetSocketAddress("127.0.0.1", port), MinecraftProtocol::new);
+        byte[] icon = {1, 2, 3, 4};
         testServer.setGlobalFlag(MinecraftConstants.SERVER_INFO_BUILDER_KEY,
                 session -> new ServerStatusInfo(
                         Component.text("Minecraft Chat test"),
                         new PlayerInfo(20, 3, List.of()),
                         new VersionInfo("26.2", 776),
-                        null,
+                        icon,
                         false));
         testServer.bind(true);
 
@@ -48,6 +50,7 @@ public class ServerStatusCheckerTest {
             assertEquals(3, result.getOnlinePlayers());
             assertEquals(20, result.getMaxPlayers());
             assertEquals("26.2", result.getVersionName());
+            assertArrayEquals(icon, result.getIconPng());
         } finally {
             testServer.close(true);
         }

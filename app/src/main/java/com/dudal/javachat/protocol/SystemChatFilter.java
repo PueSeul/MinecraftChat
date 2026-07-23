@@ -43,7 +43,7 @@ final class SystemChatFilter {
         if (presenceText != null) {
             return presenceText;
         }
-        String plain = ComponentText.plain(component).trim();
+        String plain = ComponentText.legacy(component).trim();
         return plain.isEmpty() || HIDDEN_TRANSLATION_KEYS.contains(plain) ? null : plain;
     }
 

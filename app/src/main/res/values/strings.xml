@@ -7,6 +7,6 @@
     <string name="connection_status">%1$s · %2$s</string>
     <string name="player_count">접속자 %1$d</string>
     <string name="server_status_checking">● 확인 중…</string>
-    <string name="server_status_online">● 온라인 · %1$d/%2$d명 · %3$dms</string>
+    <string name="server_status_online">● 온라인 · %1$d/%2$d · %3$dms</string>
     <string name="server_status_offline">● 오프라인</string>
 </resources>

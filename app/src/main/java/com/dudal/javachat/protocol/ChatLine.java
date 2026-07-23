@@ -1,7 +1,7 @@
 package com.dudal.javachat.protocol;
 
 public final class ChatLine {
-    public enum Kind { PLAYER, SYSTEM, LOCAL_ERROR }
+    public enum Kind { PLAYER, SYSTEM, PRESENCE, LOCAL_ERROR }
 
     private final long timestamp;
     private final Kind kind;

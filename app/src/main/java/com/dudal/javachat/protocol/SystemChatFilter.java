@@ -20,6 +20,21 @@ final class SystemChatFilter {
         return displayText(component) != null;
     }
 
+    static boolean isPlayerPresence(Component component) {
+        if (component instanceof TranslatableComponent translatable
+                && HIDDEN_TRANSLATION_KEYS.contains(translatable.key())) {
+            return true;
+        }
+        if (component != null) {
+            for (Component child : component.children()) {
+                if (isPlayerPresence(child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     static String displayText(Component component) {
         if (component == null) {
             return null;

@@ -363,11 +363,18 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
         String time = timeFormat.format(new Date(line.getTimestamp()));
         String sender = line.getSender() == null || line.getSender().isBlank()
                 ? "" : "  " + line.getSender();
-        TextView meta = UiKit.text(this, time + sender, 11,
-                line.getKind() == ChatLine.Kind.LOCAL_ERROR ? R.color.danger : R.color.text_secondary);
-        row.addView(meta);
-        TextView message = UiKit.text(this, line.getMessage(), 15,
-                line.getKind() == ChatLine.Kind.LOCAL_ERROR ? R.color.danger : R.color.text_primary);
+        int messageColor = switch (line.getKind()) {
+            case LOCAL_ERROR -> R.color.danger;
+            case PRESENCE -> R.color.chat_presence;
+            case SYSTEM -> R.color.chat_server;
+            case PLAYER -> R.color.text_primary;
+        };
+        int metaColor = line.getKind() == ChatLine.Kind.PLAYER
+                ? R.color.text_secondary : messageColor;
+        TextView meta = UiKit.text(this, time + sender, 11, metaColor);
+        meta.setGravity(Gravity.END);
+        row.addView(meta, UiKit.matchWrap());
+        TextView message = UiKit.text(this, line.getMessage(), 15, messageColor);
         UiKit.margin(message, 0, 2, 0, 0);
         row.addView(message);
         UiKit.margin(row, 0, 8, 0, 8);

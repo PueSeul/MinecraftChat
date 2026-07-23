@@ -341,7 +341,8 @@ final class Mc26_2Connection implements ProtocolConnection {
             if (message != null) {
                 listener.onChat(new ChatLine(
                         System.currentTimeMillis(),
-                        ChatLine.Kind.SYSTEM,
+                        SystemChatFilter.isPlayerPresence(chat.getContent())
+                                ? ChatLine.Kind.PRESENCE : ChatLine.Kind.SYSTEM,
                         "서버",
                         message));
             }

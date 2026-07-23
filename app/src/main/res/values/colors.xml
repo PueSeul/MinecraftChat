@@ -6,5 +6,7 @@
     <color name="primary">#72D572</color>
     <color name="text_primary">#F2F7F3</color>
     <color name="text_secondary">#AAB8AE</color>
+    <color name="chat_presence">#FFFF55</color>
+    <color name="chat_server">#D7B6FF</color>
     <color name="danger">#FF7878</color>
 </resources>

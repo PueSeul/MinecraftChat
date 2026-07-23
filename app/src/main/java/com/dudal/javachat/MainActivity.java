@@ -367,44 +367,93 @@ public final class MainActivity extends Activity {
     }
 
     private View buildServerCard(SavedServer server, int generation) {
-        LinearLayout card = UiKit.card(this);
-        TextView name = UiKit.sectionTitle(this, server.getName());
-        card.addView(name);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(UiKit.dp(this, 12), UiKit.dp(this, 14),
+                UiKit.dp(this, 10), UiKit.dp(this, 14));
+        card.setBackground(UiKit.rounded(this, getColor(R.color.surface), 16));
+
+        LinearLayout infoRow = new LinearLayout(this);
+        infoRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout identity = UiKit.vertical(this);
+        TextView name = UiKit.text(this, server.getName(), 15, R.color.text_primary);
+        name.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        identity.addView(name, UiKit.matchWrap());
+
         TextView endpoint = UiKit.text(this,
                 ServerEndpointText.format(server.getHost(), server.getPort()),
                 14, R.color.text_secondary);
-        UiKit.margin(endpoint, 0, 4, 0, 0);
-        card.addView(endpoint);
+        endpoint.setSingleLine(true);
+        endpoint.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        endpoint.setAutoSizeTextTypeUniformWithConfiguration(
+                12, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        UiKit.margin(endpoint, 0, 3, 0, 0);
+        identity.addView(endpoint, UiKit.matchWrap());
+        infoRow.addView(identity, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.42f));
+
+        LinearLayout serverState = UiKit.vertical(this);
+
         TextView status = UiKit.text(this, getString(R.string.server_status_checking),
                 13, R.color.text_secondary);
-        UiKit.margin(status, 0, 6, 0, 0);
-        card.addView(status);
-        checkServerStatus(server, status, generation);
+        status.setGravity(Gravity.END);
+        status.setSingleLine(true);
+        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        status.setAutoSizeTextTypeUniformWithConfiguration(
+                11, 13, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        serverState.addView(status, UiKit.matchWrap());
+
         String authLabel = connectionSettings.getAuthMode() == AuthMode.MICROSOFT
                 ? "현재 온라인" : "현재 오프라인";
         TextView details = UiKit.text(this,
                 ProtocolRegistry.require(server.getVersionId()).getDisplayName()
-                        + "  •  " + authLabel, 13, R.color.primary);
-        UiKit.margin(details, 0, 5, 0, 14);
-        card.addView(details);
+                        + " · " + authLabel, 13, R.color.primary);
+        details.setGravity(Gravity.END);
+        details.setSingleLine(true);
+        details.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        details.setAutoSizeTextTypeUniformWithConfiguration(
+                11, 13, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        UiKit.margin(details, 0, 3, 0, 0);
+        serverState.addView(details, UiKit.matchWrap());
+        LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.58f);
+        stateParams.setMarginStart(UiKit.dp(this, 8));
+        infoRow.addView(serverState, stateParams);
+        card.addView(infoRow, UiKit.matchWrap());
 
         LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+
         Button connect = UiKit.button(this, "접속", true);
+        connect.setTextSize(14);
+        connect.setPadding(0, 0, 0, 0);
         connect.setOnClickListener(view -> openChat(server));
-        actions.addView(connect, UiKit.weight(1));
+        actions.addView(connect, new LinearLayout.LayoutParams(
+                0, UiKit.dp(this, 48), 1));
+
         Button edit = UiKit.button(this, "편집", false);
+        edit.setTextSize(14);
+        edit.setPadding(0, 0, 0, 0);
         edit.setOnClickListener(view -> {
             Intent intent = new Intent(this, ServerEditorActivity.class);
             intent.putExtra(ServerEditorActivity.EXTRA_SERVER_ID, server.getId());
             startActivity(intent);
         });
-        LinearLayout.LayoutParams editParams = UiKit.weight(1);
-        editParams.setMarginStart(UiKit.dp(this, 10));
+        LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(
+                0, UiKit.dp(this, 48), 1);
+        editParams.setMarginStart(UiKit.dp(this, 8));
         actions.addView(edit, editParams);
-        card.addView(actions, UiKit.matchWrap());
+        LinearLayout.LayoutParams actionsParams = UiKit.matchWrap();
+        actionsParams.topMargin = UiKit.dp(this, 8);
+        card.addView(actions, actionsParams);
+
+        checkServerStatus(server, status, generation);
 
         LinearLayout.LayoutParams cardParams = UiKit.matchWrap();
-        cardParams.bottomMargin = UiKit.dp(this, 12);
+        cardParams.bottomMargin = UiKit.dp(this, 18);
         card.setLayoutParams(cardParams);
         return card;
     }

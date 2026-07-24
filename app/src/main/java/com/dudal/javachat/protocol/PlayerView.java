@@ -1,5 +1,6 @@
 package com.dudal.javachat.protocol;
 
+import java.util.Objects;
 import java.util.UUID;
 
 public final class PlayerView {
@@ -34,4 +35,25 @@ public final class PlayerView {
     public String getSkinUrl() { return skinUrl; }
     public boolean isShowHat() { return showHat; }
     public String getProfileName() { return profileName; }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof PlayerView player)) {
+            return false;
+        }
+        return latency == player.latency
+                && showHat == player.showHat
+                && Objects.equals(id, player.id)
+                && Objects.equals(name, player.name)
+                && Objects.equals(skinUrl, player.skinUrl)
+                && Objects.equals(profileName, player.profileName);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, name, latency, skinUrl, showHat, profileName);
+    }
 }

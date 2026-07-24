@@ -43,14 +43,19 @@ import com.dudal.javachat.ui.MinecraftChatText;
 import com.dudal.javachat.ui.UiKit;
 import com.dudal.javachat.ui.SkinHeadLoader;
 
+import java.util.ArrayDeque;
 import java.util.List;
 
 public final class ChatActivity extends Activity implements MinecraftConnectionService.UiListener {
+    private static final int MAX_RENDERED_CHAT_LINES = 500;
+
     private final Handler suggestionHandler = new Handler(Looper.getMainLooper());
     private SkinHeadLoader skinHeadLoader;
 
     private MinecraftConnectionService service;
     private boolean bound;
+    private boolean binding;
+    private boolean uiVisible;
     private TextView serverName;
     private TextView statusView;
     private Button chatTab;
@@ -61,7 +66,7 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     private LinearLayout suggestionRow;
     private LinearLayout inputBar;
     private EditText messageInput;
-    private List<ChatLine> chats = List.of();
+    private final ArrayDeque<ChatLine> chats = new ArrayDeque<>();
     private List<PlayerView> players = List.of();
     private boolean showingPlayers;
     private boolean connected;
@@ -70,12 +75,31 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     private ConnectionState currentState = ConnectionState.DISCONNECTED;
     private Object modernBackCallback;
     private final Runnable suggestionRequest = this::requestSuggestionsNow;
+    private boolean scrollToBottomScheduled;
+    private boolean contentRenderScheduled;
+    private final Runnable scrollToBottom = () -> {
+        scrollToBottomScheduled = false;
+        if (uiVisible && !showingPlayers && scroll != null) {
+            scroll.fullScroll(View.FOCUS_DOWN);
+        }
+    };
+    private final Runnable renderContentOnFrame = () -> {
+        contentRenderScheduled = false;
+        if (uiVisible && content != null) {
+            renderContent();
+        }
+    };
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
             service = ((MinecraftConnectionService.LocalBinder) binder).getService();
+            binding = false;
             bound = true;
+            if (!uiVisible) {
+                unbindConnectionService();
+                return;
+            }
             service.addUiListener(ChatActivity.this);
             SavedServer active = service.getActiveServer();
             if (active != null) {
@@ -85,6 +109,7 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
+            binding = false;
             bound = false;
             service = null;
             onStateChanged(ConnectionState.DISCONNECTED, "연결 서비스가 종료되었습니다.");
@@ -119,8 +144,26 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
             }
             startForegroundService(start);
         }
-        bindService(new Intent(this, MinecraftConnectionService.class),
-                serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        uiVisible = true;
+        if (!bound && !binding) {
+            binding = bindService(new Intent(this, MinecraftConnectionService.class),
+                    serviceConnection, Context.BIND_AUTO_CREATE);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        uiVisible = false;
+        suggestionHandler.removeCallbacks(suggestionRequest);
+        cancelPendingUiWork();
+        skinHeadLoader.cancelPending();
+        unbindConnectionService();
+        super.onStop();
     }
 
     @Override
@@ -130,12 +173,24 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
         if (Build.VERSION.SDK_INT >= 33) {
             unregisterModernBackCallback();
         }
+        unbindConnectionService();
+        super.onDestroy();
+    }
+
+    private void unbindConnectionService() {
         if (bound && service != null) {
             service.removeUiListener(this);
-            unbindService(serviceConnection);
-            bound = false;
         }
-        super.onDestroy();
+        if (bound || binding) {
+            try {
+                unbindService(serviceConnection);
+            } catch (IllegalArgumentException ignored) {
+                // The framework may complete an asynchronous disconnect first.
+            }
+        }
+        bound = false;
+        binding = false;
+        service = null;
     }
 
     @Override
@@ -147,7 +202,11 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     @Override
     public void onSnapshot(ConnectionState state, String detail,
                            List<ChatLine> chats, List<PlayerView> players) {
-        this.chats = chats;
+        this.chats.clear();
+        this.chats.addAll(chats);
+        while (this.chats.size() > MAX_RENDERED_CHAT_LINES) {
+            this.chats.removeFirst();
+        }
         this.players = players;
         onStateChanged(state, detail);
         renderContent();
@@ -178,16 +237,20 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     @Override
     public void onChat(ChatLine line) {
         boolean wasEmpty = chats.isEmpty();
-        java.util.ArrayList<ChatLine> updated = new java.util.ArrayList<>(chats);
-        updated.add(line);
-        chats = updated;
+        chats.addLast(line);
+        while (chats.size() > MAX_RENDERED_CHAT_LINES) {
+            chats.removeFirst();
+        }
         if (!showingPlayers) {
             if (wasEmpty) {
                 // Replace the empty-state guide when the first real line arrives.
                 renderContent();
             } else {
                 addChatLine(line);
-                scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+                while (content.getChildCount() > MAX_RENDERED_CHAT_LINES) {
+                    content.removeViewAt(0);
+                }
+                scheduleScrollToBottom();
             }
         }
     }
@@ -197,7 +260,7 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
         this.players = players;
         playersTab.setText(getString(R.string.player_count, players.size()));
         if (showingPlayers) {
-            renderContent();
+            scheduleContentRender();
         }
     }
 
@@ -328,6 +391,7 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     }
 
     private void showPlayers(boolean value) {
+        cancelPendingUiWork();
         showingPlayers = value;
         chatTab.setBackground(UiKit.rounded(this,
                 getColor(value ? R.color.surface_high : R.color.primary), 12));
@@ -345,6 +409,8 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
     }
 
     private void renderContent() {
+        contentRenderScheduled = false;
+        content.removeCallbacks(renderContentOnFrame);
         content.removeAllViews();
         if (showingPlayers) {
             content.setGravity(Gravity.TOP);
@@ -361,8 +427,35 @@ public final class ChatActivity extends Activity implements MinecraftConnectionS
             for (ChatLine line : chats) {
                 addChatLine(line);
             }
-            scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+            scheduleScrollToBottom();
         }
+    }
+
+    private void scheduleContentRender() {
+        if (contentRenderScheduled || !uiVisible || content == null) {
+            return;
+        }
+        contentRenderScheduled = true;
+        content.postOnAnimation(renderContentOnFrame);
+    }
+
+    private void scheduleScrollToBottom() {
+        if (scrollToBottomScheduled || !uiVisible || scroll == null) {
+            return;
+        }
+        scrollToBottomScheduled = true;
+        scroll.postOnAnimation(scrollToBottom);
+    }
+
+    private void cancelPendingUiWork() {
+        if (scroll != null) {
+            scroll.removeCallbacks(scrollToBottom);
+        }
+        if (content != null) {
+            content.removeCallbacks(renderContentOnFrame);
+        }
+        scrollToBottomScheduled = false;
+        contentRenderScheduled = false;
     }
 
     private void addChatLine(ChatLine line) {

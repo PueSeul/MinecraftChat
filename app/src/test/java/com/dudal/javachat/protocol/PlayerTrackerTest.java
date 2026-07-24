@@ -2,6 +2,7 @@ package com.dudal.javachat.protocol;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 
 import org.geysermc.mcprotocollib.auth.GameProfile;
 import org.geysermc.mcprotocollib.protocol.data.game.PlayerListEntry;
@@ -50,5 +51,26 @@ public class PlayerTrackerTest {
         assertEquals("https://textures.minecraft.net/texture/" + hash,
                 players.get(0).getSkinUrl());
         assertFalse(players.get(0).isShowHat());
+    }
+
+    @Test
+    public void reusesSnapshotWhenPacketDoesNotChangeVisiblePlayerData() {
+        UUID id = UUID.randomUUID();
+        GameProfile profile = new GameProfile(id, "StablePlayer");
+        PlayerListEntry entry = new PlayerListEntry(id);
+        entry.setProfile(profile);
+        entry.setListed(true);
+
+        PlayerTracker tracker = new PlayerTracker();
+        List<PlayerView> initial = tracker.apply(new ClientboundPlayerInfoUpdatePacket(
+                EnumSet.of(
+                        PlayerListEntryAction.ADD_PLAYER,
+                        PlayerListEntryAction.UPDATE_LISTED),
+                new PlayerListEntry[] {entry}));
+        List<PlayerView> unchanged = tracker.apply(new ClientboundPlayerInfoUpdatePacket(
+                EnumSet.of(PlayerListEntryAction.UPDATE_GAME_MODE),
+                new PlayerListEntry[] {entry}));
+
+        assertSame(initial, unchanged);
     }
 }

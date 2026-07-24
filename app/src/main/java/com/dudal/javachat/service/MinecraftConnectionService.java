@@ -28,17 +28,18 @@ import com.dudal.javachat.protocol.PlayerView;
 import com.dudal.javachat.protocol.ProtocolConnection;
 import com.dudal.javachat.protocol.ProtocolRegistry;
 import com.dudal.javachat.protocol.ProtocolSpec;
+import com.dudal.javachat.protocol.ViaTranslationRuntime;
 import com.dudal.javachat.status.ServerStatusChecker;
 import com.dudal.javachat.status.ServerStatusResult;
+import com.dudal.javachat.util.BackgroundExecutors;
 import com.dudal.javachat.util.ErrorText;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public final class MinecraftConnectionService extends Service implements ConnectionListener {
     public static final String ACTION_CONNECT = "com.dudal.javachat.CONNECT";
@@ -52,16 +53,18 @@ public final class MinecraftConnectionService extends Service implements Connect
 
     private final LocalBinder binder = new LocalBinder();
     private final Set<UiListener> uiListeners = new CopyOnWriteArraySet<>();
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService worker =
+            BackgroundExecutors.fixed("connection-worker", 1);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final List<ChatLine> chatHistory = new ArrayList<>();
+    private final ArrayDeque<ChatLine> chatHistory = new ArrayDeque<>();
 
     private volatile ConnectionState state = ConnectionState.DISCONNECTED;
     private volatile String stateDetail = "";
-    private volatile List<PlayerView> players = Collections.emptyList();
+    private volatile List<PlayerView> players = List.of();
     private volatile ProtocolConnection connection;
     private volatile SavedServer activeServer;
     private volatile boolean stopping;
+    private volatile String notificationText;
 
     @Override
     public void onCreate() {
@@ -82,7 +85,8 @@ public final class MinecraftConnectionService extends Service implements Connect
             stopping = false;
             String serverId = intent.getStringExtra(EXTRA_SERVER_ID);
             String detectedVersionId = intent.getStringExtra(EXTRA_DETECTED_VERSION_ID);
-            startForeground(NOTIFICATION_ID, buildNotification("연결 준비 중"));
+            notificationText = "연결 준비 중";
+            startForeground(NOTIFICATION_ID, buildNotification(notificationText));
             connect(serverId, detectedVersionId);
         }
         return START_NOT_STICKY;
@@ -98,6 +102,11 @@ public final class MinecraftConnectionService extends Service implements Connect
         ProtocolConnection active = connection;
         if (active != null) {
             active.disconnect();
+        }
+        mainHandler.removeCallbacksAndMessages(null);
+        uiListeners.clear();
+        synchronized (chatHistory) {
+            chatHistory.clear();
         }
         worker.shutdownNow();
         super.onDestroy();
@@ -172,45 +181,58 @@ public final class MinecraftConnectionService extends Service implements Connect
             updateNotification(newState.getLabel()
                     + (stateDetail.isBlank() ? "" : " · " + stateDetail));
         }
-        mainHandler.post(() -> {
-            for (UiListener listener : uiListeners) {
-                listener.onStateChanged(newState, stateDetail);
-            }
-        });
+        if (!uiListeners.isEmpty()) {
+            String snapshotDetail = stateDetail;
+            mainHandler.post(() -> {
+                for (UiListener listener : uiListeners) {
+                    listener.onStateChanged(newState, snapshotDetail);
+                }
+            });
+        }
     }
 
     @Override
     public void onChat(ChatLine line) {
         synchronized (chatHistory) {
-            chatHistory.add(line);
+            chatHistory.addLast(line);
             while (chatHistory.size() > MAX_CHAT_LINES) {
-                chatHistory.remove(0);
+                chatHistory.removeFirst();
             }
         }
-        mainHandler.post(() -> {
-            for (UiListener listener : uiListeners) {
-                listener.onChat(line);
-            }
-        });
+        if (!uiListeners.isEmpty()) {
+            mainHandler.post(() -> {
+                for (UiListener listener : uiListeners) {
+                    listener.onChat(line);
+                }
+            });
+        }
     }
 
     @Override
     public void onPlayersChanged(List<PlayerView> updatedPlayers) {
-        players = List.copyOf(updatedPlayers);
-        mainHandler.post(() -> {
-            for (UiListener listener : uiListeners) {
-                listener.onPlayersChanged(new ArrayList<>(players));
-            }
-        });
+        List<PlayerView> snapshot = List.copyOf(updatedPlayers);
+        if (snapshot.equals(players)) {
+            return;
+        }
+        players = snapshot;
+        if (!uiListeners.isEmpty()) {
+            mainHandler.post(() -> {
+                for (UiListener listener : uiListeners) {
+                    listener.onPlayersChanged(new ArrayList<>(snapshot));
+                }
+            });
+        }
     }
 
     @Override
     public void onCommandSuggestions(CommandSuggestions suggestions) {
-        mainHandler.post(() -> {
-            for (UiListener listener : uiListeners) {
-                listener.onCommandSuggestions(suggestions);
-            }
-        });
+        if (!uiListeners.isEmpty()) {
+            mainHandler.post(() -> {
+                for (UiListener listener : uiListeners) {
+                    listener.onCommandSuggestions(suggestions);
+                }
+            });
+        }
     }
 
     private void connect(String serverId, String detectedVersionId) {
@@ -233,6 +255,11 @@ public final class MinecraftConnectionService extends Service implements Connect
                     old.disconnect();
                 }
                 ProtocolSpec protocolSpec = resolveProtocol(server, detectedVersionId);
+                if (protocolSpec.getProtocolNumber()
+                        != ProtocolRegistry.JAVA_26_2.getProtocolNumber()) {
+                    onStateChanged(ConnectionState.CONNECTING, "버전 변환 엔진 준비 중");
+                    ViaTranslationRuntime.awaitReady(this);
+                }
 
                 ConnectionSettingsRepository settings =
                         new ConnectionSettingsRepository(this);
@@ -342,6 +369,8 @@ public final class MinecraftConnectionService extends Service implements Connect
                 .setContentTitle(activeServer == null ? "Minecraft Chat" : activeServer.getName())
                 .setContentText(text)
                 .setContentIntent(pendingIntent)
+                .setOnlyAlertOnce(true)
+                .setCategory(Notification.CATEGORY_SERVICE)
                 .setOngoing(state != ConnectionState.DISCONNECTED && state != ConnectionState.ERROR);
         if (state != ConnectionState.DISCONNECTED && state != ConnectionState.ERROR) {
             builder.addAction(new Notification.Action.Builder(
@@ -351,6 +380,10 @@ public final class MinecraftConnectionService extends Service implements Connect
     }
 
     private void updateNotification(String text) {
+        if (text.equals(notificationText)) {
+            return;
+        }
+        notificationText = text;
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification(text));
     }
 

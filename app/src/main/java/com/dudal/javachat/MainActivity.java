@@ -12,6 +12,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
@@ -83,7 +85,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class MainActivity extends Activity {
     private static final int REQUEST_INSTALL_PERMISSION = 201;
     private static final int REQUEST_MICROSOFT_LOGIN = 202;
-    private static final long SERVER_REORDER_HOLD_MS = 1_000L;
+    private static final long SERVER_REORDER_HOLD_MS = 700L;
     private static final long SERVER_STATUS_FRESH_MS = 30_000L;
     private ServerRepository servers;
     private ConnectionSettingsRepository connectionSettings;
@@ -808,8 +810,6 @@ public final class MainActivity extends Activity {
                 .setDuration(160)
                 .start();
         serverList.requestDisallowInterceptTouchEvent(true);
-        Toast.makeText(this, "위아래로 끌어서 서버 순서를 바꾸세요.",
-                Toast.LENGTH_SHORT).show();
     }
 
     private boolean handleServerListDrag(View ignored, DragEvent event) {
@@ -982,11 +982,13 @@ public final class MainActivity extends Activity {
     private static final class ServerCardDragShadowBuilder extends View.DragShadowBuilder {
         private final int touchX;
         private final int touchY;
+        private final float cornerRadius;
 
         private ServerCardDragShadowBuilder(View view, float touchX, float touchY) {
             super(view);
             this.touchX = Math.round(touchX);
             this.touchY = Math.round(touchY);
+            cornerRadius = UiKit.dp(view.getContext(), 16);
         }
 
         @Override
@@ -1001,6 +1003,21 @@ public final class MainActivity extends Activity {
             shadowTouchPoint.set(
                     Math.max(0, Math.min(touchX, view.getWidth())),
                     Math.max(0, Math.min(touchY, view.getHeight())));
+        }
+
+        @Override
+        public void onDrawShadow(Canvas canvas) {
+            View view = getView();
+            if (view == null) {
+                return;
+            }
+            int saveCount = canvas.save();
+            Path clipPath = new Path();
+            clipPath.addRoundRect(0f, 0f, view.getWidth(), view.getHeight(),
+                    cornerRadius, cornerRadius, Path.Direction.CW);
+            canvas.clipPath(clipPath);
+            view.draw(canvas);
+            canvas.restoreToCount(saveCount);
         }
     }
 

@@ -168,16 +168,19 @@ public final class MinecraftConnectionService extends Service implements Connect
             active.disconnect();
         }
         onStateChanged(ConnectionState.DISCONNECTED, "사용자가 연결을 종료했습니다.");
-        stopForeground(STOP_FOREGROUND_REMOVE);
-        getSystemService(NotificationManager.class).cancel(NOTIFICATION_ID);
-        stopSelf();
+        removeForegroundAndStopSelf();
     }
 
     @Override
     public void onStateChanged(ConnectionState newState, String detail) {
         state = newState;
         stateDetail = detail == null ? "" : detail;
-        if (!stopping) {
+        boolean stopForTerminalState = !stopping
+                && ConnectionLifecyclePolicy.shouldStopService(newState);
+        if (stopForTerminalState) {
+            stopping = true;
+            connection = null;
+        } else if (!stopping) {
             updateNotification(newState.getLabel()
                     + (stateDetail.isBlank() ? "" : " · " + stateDetail));
         }
@@ -188,6 +191,9 @@ public final class MinecraftConnectionService extends Service implements Connect
                     listener.onStateChanged(newState, snapshotDetail);
                 }
             });
+        }
+        if (stopForTerminalState) {
+            mainHandler.post(this::removeForegroundAndStopSelf);
         }
     }
 
@@ -385,6 +391,13 @@ public final class MinecraftConnectionService extends Service implements Connect
         }
         notificationText = text;
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification(text));
+    }
+
+    private void removeForegroundAndStopSelf() {
+        notificationText = null;
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        getSystemService(NotificationManager.class).cancel(NOTIFICATION_ID);
+        stopSelf();
     }
 
     public final class LocalBinder extends Binder {

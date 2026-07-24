@@ -122,12 +122,15 @@ public class ClientNetworkSession extends NetworkSession implements ClientSessio
         };
     }
 
-    private static void createEventLoopGroup() {
+    private static synchronized void createEventLoopGroup() {
         if (EVENT_LOOP_GROUP != null) {
             return;
         }
 
-        EVENT_LOOP_GROUP = TransportHelper.TRANSPORT_TYPE.eventLoopGroupFactory().apply(0, newThreadFactory());
+        // Android runs a small number of client connections. One non-blocking
+        // I/O thread avoids Netty's desktop-sized default pool and its idle
+        // thread stacks without reducing network concurrency.
+        EVENT_LOOP_GROUP = TransportHelper.TRANSPORT_TYPE.eventLoopGroupFactory().apply(1, newThreadFactory());
 
         Runtime.getRuntime().addShutdownHook(new Thread(
             () -> EVENT_LOOP_GROUP.shutdownGracefully(SHUTDOWN_QUIET_PERIOD_MS, SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)));

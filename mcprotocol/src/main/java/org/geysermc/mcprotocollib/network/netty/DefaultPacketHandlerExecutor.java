@@ -16,7 +16,7 @@ public class DefaultPacketHandlerExecutor {
     private static final int SHUTDOWN_QUIET_PERIOD_MS = 100;
     private static final int SHUTDOWN_TIMEOUT_MS = 500;
 
-    public static Executor createExecutor() {
+    public static synchronized Executor createExecutor() {
         if (!USE_EVENT_LOOP_FOR_PACKETS) {
             return Runnable::run;
         }
@@ -24,7 +24,8 @@ public class DefaultPacketHandlerExecutor {
         if (PACKET_EVENT_LOOP == null) {
             // See TcpClientSession.newThreadFactory() for details on
             // daemon threads and their interaction with the runtime.
-            PACKET_EVENT_LOOP = new DefaultEventLoopGroup(new DefaultThreadFactory(DefaultPacketHandlerExecutor.class, true));
+            PACKET_EVENT_LOOP = new DefaultEventLoopGroup(
+                1, new DefaultThreadFactory(DefaultPacketHandlerExecutor.class, true));
             Runtime.getRuntime().addShutdownHook(new Thread(
                 () -> PACKET_EVENT_LOOP.shutdownGracefully(SHUTDOWN_QUIET_PERIOD_MS, SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)));
         }

@@ -52,6 +52,7 @@ import com.dudal.javachat.protocol.ProtocolSpec;
 import com.dudal.javachat.status.ServerStatusChecker;
 import com.dudal.javachat.status.ServerStatusResult;
 import com.dudal.javachat.status.LatencyQuality;
+import com.dudal.javachat.ui.BitmapSampling;
 import com.dudal.javachat.ui.MinecraftChatText;
 import com.dudal.javachat.ui.ServerMotdText;
 import com.dudal.javachat.ui.UiKit;
@@ -60,6 +61,7 @@ import com.dudal.javachat.update.GitHubUpdateChecker;
 import com.dudal.javachat.update.UpdateFileProvider;
 import com.dudal.javachat.update.VersionOrder;
 import com.dudal.javachat.util.ErrorText;
+import com.dudal.javachat.util.BackgroundExecutors;
 
 import net.raphimc.minecraftauth.msa.model.MsaDeviceCode;
 
@@ -74,7 +76,7 @@ import java.util.Set;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @SuppressLint("SetTextI18n")
@@ -82,6 +84,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_INSTALL_PERMISSION = 201;
     private static final int REQUEST_MICROSOFT_LOGIN = 202;
     private static final long SERVER_REORDER_HOLD_MS = 1_000L;
+    private static final long SERVER_STATUS_FRESH_MS = 30_000L;
     private ServerRepository servers;
     private ConnectionSettingsRepository connectionSettings;
     private MicrosoftAuthRepository auth;
@@ -117,10 +120,15 @@ public final class MainActivity extends Activity {
             pullRefreshIndicator.setVisibility(View.GONE);
         }
     };
-    private final ExecutorService statusExecutor = Executors.newFixedThreadPool(3);
-    private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService statusExecutor =
+            BackgroundExecutors.fixed("server-status", 2);
+    private final ExecutorService updateExecutor =
+            BackgroundExecutors.fixed("app-update", 1);
     private final AtomicInteger statusGeneration = new AtomicInteger();
     private final Map<String, String> detectedVersionHints = new ConcurrentHashMap<>();
+    private final Set<Future<?>> statusTasks = ConcurrentHashMap.newKeySet();
+    private String renderedServersFingerprint;
+    private long lastStatusRefreshElapsed;
     private ServerDragState activeServerDrag;
     private long suppressServerClickUntil;
 
@@ -145,8 +153,14 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStop() {
+        cancelStatusChecks();
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
-        statusGeneration.incrementAndGet();
+        cancelStatusChecks();
         mainHandler.removeCallbacks(hidePullRefreshIndicator);
         statusExecutor.shutdownNow();
         updateExecutor.shutdownNow();
@@ -378,7 +392,6 @@ public final class MainActivity extends Activity {
         connectionSettings.setAuthMode(mode);
         refreshConnectionMode();
         refreshAccount();
-        refreshServers();
     }
 
     private void styleModeButton(Button button, boolean selected) {
@@ -414,7 +427,6 @@ public final class MainActivity extends Activity {
         }
         connectionSettings.setOfflineNickname(nickname);
         updateModeStatus();
-        refreshServers();
         if (showConfirmation) {
             Toast.makeText(this, "오프라인 닉네임을 저장했습니다.",
                     Toast.LENGTH_SHORT).show();
@@ -423,10 +435,25 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshServers() {
+        refreshServers(false);
+    }
+
+    private void refreshServers(boolean forceNetwork) {
+        List<SavedServer> values = servers.getAll();
+        String fingerprint = serverFingerprint(values);
+        long now = SystemClock.elapsedRealtime();
+        if (!forceNetwork
+                && fingerprint.equals(renderedServersFingerprint)
+                && serverList.getChildCount() > 0
+                && now - lastStatusRefreshElapsed < SERVER_STATUS_FRESH_MS) {
+            return;
+        }
+        cancelStatusChecks(false);
         int generation = statusGeneration.incrementAndGet();
         detectedVersionHints.clear();
         serverList.removeAllViews();
-        List<SavedServer> values = servers.getAll();
+        renderedServersFingerprint = fingerprint;
+        lastStatusRefreshElapsed = now;
         if (pullRefreshActive) {
             pullRefreshGeneration = generation;
             pendingPullRefreshChecks = values.size();
@@ -445,6 +472,18 @@ public final class MainActivity extends Activity {
         for (SavedServer server : values) {
             serverList.addView(buildServerCard(server, generation));
         }
+    }
+
+    private static String serverFingerprint(List<SavedServer> values) {
+        StringBuilder fingerprint = new StringBuilder(values.size() * 64);
+        for (SavedServer server : values) {
+            fingerprint.append(server.getId()).append('\u0000')
+                    .append(server.getName()).append('\u0000')
+                    .append(server.getHost()).append('\u0000')
+                    .append(server.getPort()).append('\u0000')
+                    .append(server.getVersionId()).append('\u0001');
+        }
+        return fingerprint.toString();
     }
 
     private View buildServerCard(SavedServer server, int generation) {
@@ -652,12 +691,15 @@ public final class MainActivity extends Activity {
     private void checkServerStatus(SavedServer server, TextView view, TextView playerCount,
                                    TextView version, TextView ping, ImageView iconView,
                                    View motdDivider, TextView motd, int generation) {
-        statusExecutor.execute(() -> {
+        Future<?> task = statusExecutor.submit(() -> {
             ServerStatusResult result = ServerStatusChecker.query(server);
             Bitmap icon = decodeServerIcon(result.getIconPng());
             runOnUiThread(() -> {
                 if (isDestroyed() || generation != statusGeneration.get()
                         || !view.isAttachedToWindow()) {
+                    if (icon != null && !icon.isRecycled()) {
+                        icon.recycle();
+                    }
                     completePullRefreshCheck(generation);
                     return;
                 }
@@ -696,6 +738,35 @@ public final class MainActivity extends Activity {
                 completePullRefreshCheck(generation);
             });
         });
+        statusTasks.add(task);
+    }
+
+    private void cancelStatusChecks() {
+        cancelStatusChecks(true);
+    }
+
+    private void cancelStatusChecks(boolean resetPullRefresh) {
+        statusGeneration.incrementAndGet();
+        boolean cancelledActive = false;
+        for (Future<?> task : statusTasks) {
+            if (!task.isDone()) {
+                cancelledActive |= task.cancel(true);
+            }
+        }
+        statusTasks.clear();
+        if (cancelledActive) {
+            lastStatusRefreshElapsed = 0L;
+        }
+        if (resetPullRefresh && pullRefreshActive) {
+            pullRefreshActive = false;
+            pendingPullRefreshChecks = 0;
+            if (serverRefreshButton != null) {
+                serverRefreshButton.setEnabled(true);
+            }
+            if (pullRefreshIndicator != null) {
+                pullRefreshIndicator.setVisibility(View.GONE);
+            }
+        }
     }
 
     private static void hideServerMotd(View motdDivider, TextView motd) {
@@ -821,6 +892,7 @@ public final class MainActivity extends Activity {
                 }
             }
             servers.reorder(orderedIds);
+            renderedServersFingerprint = serverFingerprint(servers.getAll());
         }
 
         state.card.animate()
@@ -1029,7 +1101,7 @@ public final class MainActivity extends Activity {
         pullRefreshIndicator.setText("서버 목록 새로고침 중…");
         pullRefreshIndicator.setTextColor(getColor(R.color.primary));
         pullRefreshIndicator.setVisibility(View.VISIBLE);
-        refreshServers();
+        refreshServers(true);
     }
 
     private void completePullRefreshCheck(int generation) {
@@ -1069,6 +1141,9 @@ public final class MainActivity extends Activity {
         }
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false;
+        int target = UiKit.dp(this, 52);
+        options.inSampleSize = BitmapSampling.fit(
+                bounds.outWidth, bounds.outHeight, target, target);
         return BitmapFactory.decodeByteArray(iconPng, 0, iconPng.length, options);
     }
 

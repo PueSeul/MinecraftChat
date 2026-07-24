@@ -15,6 +15,7 @@ import android.widget.ImageView;
 
 import com.dudal.javachat.protocol.PlayerView;
 import com.dudal.javachat.protocol.ProfileSkin;
+import com.dudal.javachat.util.BackgroundExecutors;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -33,8 +34,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public final class SkinHeadLoader implements AutoCloseable {
     private static final int MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024;
@@ -42,9 +45,11 @@ public final class SkinHeadLoader implements AutoCloseable {
     private static final int MAX_SKIN_DIMENSION = 2048;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService downloadExecutor = Executors.newFixedThreadPool(2);
+    private final ExecutorService downloadExecutor =
+            BackgroundExecutors.fixed("skin-download", 2);
     private final LruCache<String, Bitmap> cache;
     private final Map<String, List<WeakReference<ImageView>>> waiting = new HashMap<>();
+    private final Set<Future<?>> downloads = ConcurrentHashMap.newKeySet();
     private final int targetPixels;
     private final Bitmap fallback;
     private volatile boolean closed;
@@ -92,17 +97,23 @@ public final class SkinHeadLoader implements AutoCloseable {
         waiting.put(key, targets);
 
         boolean showHat = player.isShowHat();
-        downloadExecutor.execute(() -> {
+        Future<?> download = downloadExecutor.submit(() -> {
             String resolvedUrl = url != null ? url : resolveSkinUrl(profileName);
             Bitmap head = resolvedUrl == null
                     ? null : downloadHead(resolvedUrl, showHat, targetPixels);
-            mainHandler.post(() -> finish(key, head));
+            if (!closed) {
+                mainHandler.post(() -> finish(key, head));
+            }
         });
+        downloads.add(download);
     }
 
     private void finish(String key, Bitmap head) {
         List<WeakReference<ImageView>> targets = waiting.remove(key);
         if (closed || targets == null) {
+            if (head != null && head != fallback && !head.isRecycled()) {
+                head.recycle();
+            }
             return;
         }
         Bitmap result = head == null ? fallback : head;
@@ -239,7 +250,12 @@ public final class SkinHeadLoader implements AutoCloseable {
             if (!validDimensions(bounds.outWidth, bounds.outHeight)) {
                 return null;
             }
-            Bitmap skin = BitmapFactory.decodeByteArray(encoded, 0, encoded.length);
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inScaled = false;
+            options.inSampleSize = BitmapSampling.preserveGrid(
+                    bounds.outWidth, bounds.outHeight, 64, 32);
+            Bitmap skin = BitmapFactory.decodeByteArray(
+                    encoded, 0, encoded.length, options);
             if (skin == null) {
                 return null;
             }
@@ -319,7 +335,16 @@ public final class SkinHeadLoader implements AutoCloseable {
     @Override
     public void close() {
         closed = true;
-        waiting.clear();
+        cancelPending();
         downloadExecutor.shutdownNow();
+    }
+
+    public void cancelPending() {
+        for (Future<?> download : downloads) {
+            download.cancel(true);
+        }
+        downloads.clear();
+        waiting.clear();
+        mainHandler.removeCallbacksAndMessages(null);
     }
 }

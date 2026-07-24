@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.dudal.javachat.BuildConfig;
+import com.dudal.javachat.util.BackgroundExecutors;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -18,7 +19,6 @@ import net.raphimc.minecraftauth.util.http.content.JsonContent;
 import net.lenni0451.commons.httpclient.HttpClient;
 
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -34,7 +34,8 @@ public final class MicrosoftAuthRepository {
     private final Context appContext;
     private final SecureStore secureStore;
     private final SharedPreferences metadata;
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ExecutorService executor =
+            BackgroundExecutors.fixed("microsoft-auth", 1);
     private final AtomicLong loginGeneration = new AtomicLong();
     private volatile Future<?> loginTask;
 

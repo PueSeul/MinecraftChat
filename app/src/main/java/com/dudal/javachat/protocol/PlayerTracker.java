@@ -14,10 +14,21 @@ import java.util.Map;
 import java.util.UUID;
 
 final class PlayerTracker {
+    private static final EnumSet<PlayerListEntryAction> VISIBLE_ACTIONS = EnumSet.of(
+            PlayerListEntryAction.ADD_PLAYER,
+            PlayerListEntryAction.UPDATE_LISTED,
+            PlayerListEntryAction.UPDATE_LATENCY,
+            PlayerListEntryAction.UPDATE_DISPLAY_NAME,
+            PlayerListEntryAction.UPDATE_HAT);
+
     private final Map<UUID, MutablePlayer> players = new HashMap<>();
+    private List<PlayerView> cachedSnapshot = List.of();
 
     synchronized List<PlayerView> apply(ClientboundPlayerInfoUpdatePacket packet) {
         EnumSet<PlayerListEntryAction> actions = packet.getActions();
+        if (java.util.Collections.disjoint(actions, VISIBLE_ACTIONS)) {
+            return cachedSnapshot;
+        }
         for (PlayerListEntry entry : packet.getEntries()) {
             MutablePlayer player = players.computeIfAbsent(entry.getProfileId(), MutablePlayer::new);
             if (actions.contains(PlayerListEntryAction.ADD_PLAYER) && entry.getProfile() != null) {
@@ -49,6 +60,7 @@ final class PlayerTracker {
 
     synchronized void clear() {
         players.clear();
+        cachedSnapshot = List.of();
     }
 
     private List<PlayerView> snapshot() {
@@ -63,7 +75,8 @@ final class PlayerTracker {
             }
         }
         result.sort(Comparator.comparing(PlayerView::getName, String.CASE_INSENSITIVE_ORDER));
-        return result;
+        cachedSnapshot = List.copyOf(result);
+        return cachedSnapshot;
     }
 
     private static final class MutablePlayer {
